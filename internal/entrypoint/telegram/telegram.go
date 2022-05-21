@@ -192,7 +192,7 @@ func (b *Bot) listTransactions(args string) (*reply, error) {
 	)
 
 	if args != "" {
-		date, err = time.Parse("2006-01-02", args)
+		date, err = time.Parse("02.01.2006", args)
 		if err != nil {
 			return nil, fmt.Errorf("invalid date %s: %w", args, err)
 		}
