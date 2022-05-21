@@ -20,6 +20,8 @@ type Bot struct {
 	idempotenceUsecase       *usecase.Idempotence
 	createTransactionUsecase *usecase.CreateTransaction
 	getTransactionsByDate    *usecase.GetTransactionsByDate
+
+	commands map[string]func(args string) (*reply, error)
 }
 
 func New(
@@ -35,13 +37,24 @@ func New(
 		return nil, err
 	}
 
-	return &Bot{
+	b := &Bot{
 		api:                      botApi,
 		adminID:                  adminID,
 		idempotenceUsecase:       idempotenceUsecase,
 		createTransactionUsecase: createTransactionUsecase,
 		getTransactionsByDate:    getTransactionsByDate,
-	}, nil
+
+		commands: make(map[string]func(args string) (*reply, error)),
+	}
+
+	b.Register("create", b.createTransaction)
+	b.Register("list", b.listTransactions)
+
+	return b, nil
+}
+
+func (b *Bot) Register(command string, handler func(args string) (*reply, error)) {
+	b.commands[command] = handler
 }
 
 func (b *Bot) Start(ctx context.Context) {
@@ -59,47 +72,77 @@ func (b *Bot) HandleUpdates(_ context.Context, updates tgbotapi.UpdatesChannel) 
 			continue
 		}
 
+		if ok, err := b.checkIfFirstHandle(update); err != nil {
+			fmt.Println(err)
+			continue
+		} else if !ok {
+			continue
+		}
+
 		if update.Message != nil {
-			ok, err := b.idempotenceUsecase.Execute("telegram" + strconv.FormatInt(update.Message.Chat.ID, 10) + strconv.Itoa(update.Message.MessageID))
-			if err != nil {
-				fmt.Println(err)
-				continue
-			}
-
-			if !ok {
-				fmt.Println("Already handled", update.Message.Chat.ID, update.Message.MessageID)
-				continue
-			}
-
 			if !update.Message.IsCommand() {
 				continue
 			}
 
-			args := update.Message.CommandArguments()
+			handler, ok := b.commands[update.Message.Command()]
+			if !ok {
+				continue
+			}
 
-			switch update.Message.Command() {
-			case "create":
-				if response, err := b.createTransaction(update.Message.Chat.ID, args); err != nil {
-					b.handleError(update.Message, err)
-				} else if response != nil {
-					if _, err = b.api.Send(response); err != nil {
-						fmt.Println(err)
-					}
-				}
-			case "list":
-				if response, err := b.listTransactions(update.Message.Chat.ID, args); err != nil {
-					b.handleError(update.Message, err)
-				} else if response != nil {
-					if _, err = b.api.Send(response); err != nil {
-						fmt.Println(err)
-					}
-				}
+			reply, err := handler(update.Message.CommandArguments())
+			if err != nil {
+				b.handleError(update.Message, err)
+				continue
+			}
+
+			message := tgbotapi.NewMessage(update.Message.Chat.ID, reply.text)
+			message.ReplyMarkup = reply.inlineKeyboard
+
+			_, err = b.api.Send(message)
+			if err != nil {
+				fmt.Println(err)
+			}
+		}
+
+		if update.CallbackQuery != nil {
+			ca := strings.SplitN(update.CallbackQuery.Data, " ", 2)
+			if len(ca) != 2 {
+				continue
+			}
+
+			handler, ok := b.commands[ca[0]]
+			if !ok {
+				continue
+			}
+
+			reply, err := handler(ca[1])
+			if err != nil {
+				b.handleError(update.CallbackQuery.Message, err)
+				continue
+			}
+
+			message := tgbotapi.NewEditMessageText(update.CallbackQuery.Message.Chat.ID, update.CallbackQuery.Message.MessageID, reply.text)
+			message.ReplyMarkup = reply.inlineKeyboard
+
+			_, err = b.api.Send(message)
+			if err != nil {
+				fmt.Println(err)
 			}
 		}
 	}
 }
 
-func (b *Bot) createTransaction(user int64, message string) (tgbotapi.Chattable, error) {
+func (b *Bot) checkIfFirstHandle(update tgbotapi.Update) (bool, error) {
+	id := "telegram"
+	if update.Message != nil {
+		id += strconv.FormatInt(update.Message.Chat.ID, 10) + strconv.Itoa(update.Message.MessageID)
+	} else if update.CallbackQuery != nil {
+		id += strconv.FormatInt(update.CallbackQuery.Message.Chat.ID, 10) + update.CallbackQuery.ID
+	}
+	return b.idempotenceUsecase.Execute(id)
+}
+
+func (b *Bot) createTransaction(message string) (*reply, error) {
 	transaction, err := makeTransactionFromMessage(message)
 	if err != nil {
 		return nil, err
@@ -110,8 +153,7 @@ func (b *Bot) createTransaction(user int64, message string) (tgbotapi.Chattable,
 		return nil, err
 	}
 
-	reply := tgbotapi.NewMessage(user, "Transaction created")
-	return reply, nil
+	return &reply{text: "Transaction created"}, nil
 }
 
 func makeTransactionFromMessage(message string) (entity.Transaction, error) {
@@ -143,7 +185,7 @@ func (b *Bot) handleError(message *tgbotapi.Message, err error) {
 	}
 }
 
-func (b *Bot) listTransactions(user int64, args string) (tgbotapi.Chattable, error) {
+func (b *Bot) listTransactions(args string) (*reply, error) {
 	var (
 		date = time.Now().UTC()
 		err  error
@@ -161,6 +203,19 @@ func (b *Bot) listTransactions(user int64, args string) (tgbotapi.Chattable, err
 		return nil, err
 	}
 
-	reply := tgbotapi.NewMessage(user, fmt.Sprintf("Transactions for %s: %v", date.Format("2006-01-02"), transactions))
-	return reply, nil
+	r := reply{
+		text: fmt.Sprintf("Transactions for %s:\n\n", date.Format("02.01.2006")),
+	}
+
+	for i, t := range transactions {
+		r.text += fmt.Sprintf("%d. %s -> %s %v RUB: %s /edit_%d\n\n", i+1, t.FromAccount, t.ToAccount, t.Amount, t.Description, t.ID)
+	}
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("⬅️", fmt.Sprintf("list %s", date.AddDate(0, 0, -1).Format("02.01.2006"))),
+		tgbotapi.NewInlineKeyboardButtonData("➡️", fmt.Sprintf("list %s", date.AddDate(0, 0, 1).Format("02.01.2006"))),
+	))
+	r.inlineKeyboard = &keyboard
+
+	return &r, nil
 }

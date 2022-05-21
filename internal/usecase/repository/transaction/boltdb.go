@@ -117,6 +117,9 @@ func (t *BoltDBRepository) GetByDate(date time.Time) ([]entity.Transaction, erro
 	err := t.db.View(func(tx *bolt.Tx) error {
 		dateKey := []byte(date.Format("2006-01-02"))
 		bucket := tx.Bucket(transactionsBucketName).Bucket(byDateBucketName).Bucket(dateKey)
+		if bucket == nil {
+			return nil
+		}
 
 		err := bucket.ForEach(func(k, v []byte) error {
 			var transaction entity.Transaction
