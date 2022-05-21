@@ -14,6 +14,7 @@ import (
 
 type Bot struct {
 	api                      *tgbotapi.BotAPI
+	adminID                  int64
 	idempotenceUsecase       *usecase.Idempotence
 	createTransactionUsecase *usecase.CreateTransaction
 	getTransactionsByDate    *usecase.GetTransactionsByDate
@@ -21,6 +22,7 @@ type Bot struct {
 
 func New(
 	token string,
+	adminID int64,
 	idempotenceUsecase *usecase.Idempotence,
 	createTransactionUsecase *usecase.CreateTransaction,
 	getTransactionsByDate *usecase.GetTransactionsByDate,
@@ -33,6 +35,7 @@ func New(
 
 	return &Bot{
 		api:                      botApi,
+		adminID:                  adminID,
 		idempotenceUsecase:       idempotenceUsecase,
 		createTransactionUsecase: createTransactionUsecase,
 		getTransactionsByDate:    getTransactionsByDate,
@@ -49,15 +52,20 @@ func (b *Bot) Start(ctx context.Context) {
 
 func (b *Bot) HandleUpdates(_ context.Context, updates tgbotapi.UpdatesChannel) {
 	for update := range updates {
+		user := update.SentFrom()
+		if user.ID != b.adminID {
+			continue
+		}
+
 		if update.Message != nil {
-			ok, err := b.idempotenceUsecase.Execute("telegram" + strconv.Itoa(update.Message.MessageID))
+			ok, err := b.idempotenceUsecase.Execute("telegram" + strconv.FormatInt(update.Message.Chat.ID, 10) + strconv.Itoa(update.Message.MessageID))
 			if err != nil {
 				fmt.Println(err)
 				continue
 			}
 
 			if !ok {
-				fmt.Println("Already handled", update.Message.MessageID)
+				fmt.Println("Already handled", update.Message.Chat.ID, update.Message.MessageID)
 				continue
 			}
 
