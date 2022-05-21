@@ -4,9 +4,11 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
-	bolt "go.etcd.io/bbolt"
-	"money/internal/entity"
 	"time"
+
+	"enigma/internal/entity"
+
+	bolt "go.etcd.io/bbolt"
 )
 
 var NotFoundErr = errors.New("transaction not found")

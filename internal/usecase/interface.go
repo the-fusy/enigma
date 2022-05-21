@@ -1,8 +1,9 @@
 package usecase
 
 import (
-	"money/internal/entity"
 	"time"
+
+	"enigma/internal/entity"
 )
 
 type transactionRepository interface {

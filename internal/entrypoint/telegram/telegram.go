@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	"money/internal/entity"
-	"money/internal/usecase"
 	"strconv"
 	"strings"
 	"time"
+
+	"enigma/internal/entity"
+	"enigma/internal/usecase"
+
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
 type Bot struct {
