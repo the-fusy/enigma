@@ -15,11 +15,13 @@ import (
 )
 
 type Bot struct {
-	api                      *tgbotapi.BotAPI
-	adminID                  int64
+	api     *tgbotapi.BotAPI
+	adminID int64
+
 	idempotenceUsecase       *usecase.Idempotence
 	createTransactionUsecase *usecase.CreateTransaction
 	getTransactionsByDate    *usecase.GetTransactionsByDate
+	getTransactionByID       *usecase.GetTransactionByID
 
 	commands map[string]func(args string) (*reply, error)
 }
@@ -30,6 +32,7 @@ func New(
 	idempotenceUsecase *usecase.Idempotence,
 	createTransactionUsecase *usecase.CreateTransaction,
 	getTransactionsByDate *usecase.GetTransactionsByDate,
+	getTransactionByID *usecase.GetTransactionByID,
 ) (*Bot, error) {
 
 	botApi, err := tgbotapi.NewBotAPI(token)
@@ -38,17 +41,20 @@ func New(
 	}
 
 	b := &Bot{
-		api:                      botApi,
-		adminID:                  adminID,
+		api:     botApi,
+		adminID: adminID,
+
 		idempotenceUsecase:       idempotenceUsecase,
 		createTransactionUsecase: createTransactionUsecase,
 		getTransactionsByDate:    getTransactionsByDate,
+		getTransactionByID:       getTransactionByID,
 
 		commands: make(map[string]func(args string) (*reply, error)),
 	}
 
 	b.Register("create", b.createTransaction)
 	b.Register("list", b.listTransactions)
+	b.Register("show", b.showTransaction)
 
 	return b, nil
 }
@@ -142,8 +148,8 @@ func (b *Bot) checkIfFirstHandle(update tgbotapi.Update) (bool, error) {
 	return b.idempotenceUsecase.Execute(id)
 }
 
-func (b *Bot) createTransaction(message string) (*reply, error) {
-	transaction, err := makeTransactionFromMessage(message)
+func (b *Bot) createTransaction(args string) (*reply, error) {
+	transaction, err := makeTransactionFromArgs(args)
 	if err != nil {
 		return nil, err
 	}
@@ -156,8 +162,8 @@ func (b *Bot) createTransaction(message string) (*reply, error) {
 	return &reply{text: "Transaction created"}, nil
 }
 
-func makeTransactionFromMessage(message string) (entity.Transaction, error) {
-	messageParts := strings.SplitN(message, " ", 4)
+func makeTransactionFromArgs(args string) (entity.Transaction, error) {
+	messageParts := strings.SplitN(args, " ", 4)
 	if len(messageParts) != 4 {
 		return entity.Transaction{}, errors.New("invalid message format")
 	}
@@ -203,19 +209,52 @@ func (b *Bot) listTransactions(args string) (*reply, error) {
 		return nil, err
 	}
 
-	r := reply{
-		text: fmt.Sprintf("Transactions for %s:\n\n", date.Format("02.01.2006")),
+	message := fmt.Sprintf("Transactions for %s:\n\n", date.Format("02.01.2006"))
+	keyboard := newInlineKeyboard(5)
+
+	if len(transactions) == 0 {
+		message = "No transactions for " + date.Format("02.01.2006")
+	} else {
+		for i, t := range transactions {
+			message += fmt.Sprintf("%d. %s -> %s %v RUB: %s\n\n", i+1, t.FromAccount, t.ToAccount, t.Amount, t.Description)
+			keyboard.addButton(strconv.Itoa(i+1), fmt.Sprintf("show %d", t.ID))
+		}
+		keyboard.fillLastRowWithEmptyButtons()
+
+		message += "Choose one to edit"
 	}
 
-	for i, t := range transactions {
-		r.text += fmt.Sprintf("%d. %s -> %s %v RUB: %s /edit_%d\n\n", i+1, t.FromAccount, t.ToAccount, t.Amount, t.Description, t.ID)
+	keyboard.addButton("⬅️", fmt.Sprintf("list %s", date.AddDate(0, 0, -1).Format("02.01.2006")))
+	keyboard.addButton("➡️", fmt.Sprintf("list %s", date.AddDate(0, 0, 1).Format("02.01.2006")))
+
+	return &reply{text: message, inlineKeyboard: keyboard.markup()}, nil
+}
+
+func (b *Bot) showTransaction(args string) (*reply, error) {
+	transactionID, err := strconv.Atoi(args)
+	if err != nil {
+		return nil, fmt.Errorf("invalid transaction id %s: %w", args, err)
 	}
 
-	keyboard := tgbotapi.NewInlineKeyboardMarkup(tgbotapi.NewInlineKeyboardRow(
-		tgbotapi.NewInlineKeyboardButtonData("⬅️", fmt.Sprintf("list %s", date.AddDate(0, 0, -1).Format("02.01.2006"))),
-		tgbotapi.NewInlineKeyboardButtonData("➡️", fmt.Sprintf("list %s", date.AddDate(0, 0, 1).Format("02.01.2006"))),
-	))
-	r.inlineKeyboard = &keyboard
+	transaction, err := b.getTransactionByID.Execute(transactionID)
+	if err != nil {
+		return nil, err
+	}
 
-	return &r, nil
+	message := fmt.Sprintf("Transaction #%d:\n\n", transaction.ID)
+	message += fmt.Sprintf("Date: %s\n", transaction.Date.Format("02.01.2006"))
+	message += fmt.Sprintf("From: %s\n", transaction.FromAccount)
+	message += fmt.Sprintf("To: %s\n", transaction.ToAccount)
+	message += fmt.Sprintf("Amount: %v RUB\n", transaction.Amount)
+	message += fmt.Sprintf("Description: %s\n\n", transaction.Description)
+
+	keyboard := newInlineKeyboard(3)
+	for _, t := range []string{"Date", "From", "To", "Amount", "Description"} {
+		keyboard.addButton(t, fmt.Sprintf("edit %s %d", strings.ToLower(t), transaction.ID))
+	}
+
+	keyboard.addRow()
+	keyboard.addButton("↩", fmt.Sprintf("list %s", transaction.Date.Format("02.01.2006")))
+
+	return &reply{text: message, inlineKeyboard: keyboard.markup()}, nil
 }

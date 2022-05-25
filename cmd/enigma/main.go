@@ -47,8 +47,9 @@ func main() {
 	}
 	createTransactionUsecase := usecase.NewCreateTransaction(transactionRepository)
 	getTransactionsByDateUsecase := usecase.NewGetTransactionsByDate(transactionRepository)
+	getTransactionByID := usecase.NewGetTransactionByID(transactionRepository)
 
-	bot, err := telegram.New(*token, *adminID, idempotenceUsecase, createTransactionUsecase, getTransactionsByDateUsecase)
+	bot, err := telegram.New(*token, *adminID, idempotenceUsecase, createTransactionUsecase, getTransactionsByDateUsecase, getTransactionByID)
 	if err != nil {
 		log.Fatal(err)
 	}
