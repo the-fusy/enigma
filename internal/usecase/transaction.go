@@ -30,7 +30,7 @@ func NewGetTransactionByID(repo transactionRepository) *GetTransactionByID {
 	}
 }
 
-func (g *GetTransactionByID) Execute(id int) (entity.Transaction, error) {
+func (g *GetTransactionByID) Execute(id uint64) (entity.Transaction, error) {
 	return g.repo.GetByID(id)
 }
 

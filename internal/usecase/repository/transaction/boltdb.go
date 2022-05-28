@@ -61,7 +61,7 @@ func (t *BoltDBRepository) Create(transaction entity.Transaction) error {
 			return err
 		}
 
-		transaction.ID = int(id)
+		transaction.ID = id
 
 		raw, err := json.Marshal(transaction)
 		if err != nil {
@@ -89,7 +89,7 @@ func (t *BoltDBRepository) Create(transaction entity.Transaction) error {
 	})
 }
 
-func (t *BoltDBRepository) GetByID(id int) (entity.Transaction, error) {
+func (t *BoltDBRepository) GetByID(id uint64) (entity.Transaction, error) {
 	var transaction entity.Transaction
 	err := t.db.View(func(tx *bolt.Tx) error {
 		raw := tx.Bucket(transactionsBucketName).Bucket(byIDBucketName).Get(itob(id))
@@ -145,8 +145,8 @@ func (t *BoltDBRepository) GetByDate(date time.Time) ([]entity.Transaction, erro
 	return transactions, nil
 }
 
-func itob(v int) []byte {
+func itob(v uint64) []byte {
 	b := make([]byte, 8)
-	binary.BigEndian.PutUint64(b, uint64(v))
+	binary.BigEndian.PutUint64(b, v)
 	return b
 }

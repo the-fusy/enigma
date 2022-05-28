@@ -3,7 +3,7 @@ package entity
 import "time"
 
 type Transaction struct {
-	ID          int       `json:"id"`
+	ID          uint64    `json:"id"`
 	Date        time.Time `json:"date"`
 	FromAccount string    `json:"from_account"`
 	ToAccount   string    `json:"to_account"`

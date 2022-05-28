@@ -9,6 +9,7 @@ import (
 	"enigma/internal/usecase"
 	"enigma/internal/usecase/repository/idempotence"
 	"enigma/internal/usecase/repository/transaction"
+	"enigma/internal/usecase/repository/userstate"
 
 	bolt "go.etcd.io/bbolt"
 )
@@ -41,6 +42,13 @@ func main() {
 	}
 	idempotenceUsecase := usecase.NewIdempotence(idempotenceRepository)
 
+	userstateRepository, err := userstate.NewBoltDB(db)
+	if err != nil {
+		log.Fatal(err)
+	}
+	getUserstateUsecase := usecase.NewGetUserstate(userstateRepository)
+	saveUserstateUsecase := usecase.NewSaveUserstate(userstateRepository)
+
 	transactionRepository, err := transaction.NewBoltDB(db)
 	if err != nil {
 		log.Fatal(err)
@@ -49,7 +57,11 @@ func main() {
 	getTransactionsByDateUsecase := usecase.NewGetTransactionsByDate(transactionRepository)
 	getTransactionByID := usecase.NewGetTransactionByID(transactionRepository)
 
-	bot, err := telegram.New(*token, *adminID, idempotenceUsecase, createTransactionUsecase, getTransactionsByDateUsecase, getTransactionByID)
+	bot, err := telegram.New(
+		*token, *adminID, idempotenceUsecase,
+		getUserstateUsecase, saveUserstateUsecase,
+		createTransactionUsecase, getTransactionsByDateUsecase, getTransactionByID,
+	)
 	if err != nil {
 		log.Fatal(err)
 	}
